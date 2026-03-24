@@ -1,53 +1,115 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, Check, Shield, CreditCard, Loader2, Eye, EyeOff, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 const STEPS = ["Your Details", "Payment", "Confirmation"];
 
-const ORDER = {
-  event: "Tech Summit KL 2026",
-  date: "Sat, Mar 15, 2026 · 2:00 PM",
-  venue: "Axiata Arena, KL",
-  items: [
-    { name: "General Admission", qty: 1, price: 25 },
-    { name: "VIP Package",       qty: 0, price: 89 },
-  ],
-  serviceFee: 2.5,
-};
+interface TicketSelection {
+  id: string;
+  name: string;
+  qty: number;
+  price: number; // cents
+}
 
-const subtotal = ORDER.items.reduce((s, i) => s + i.price * i.qty, 0);
-const total = subtotal + ORDER.serviceFee;
+interface EventInfo {
+  id: string;
+  title: string;
+  start_date: string;
+  venue_name: string | null;
+  venue_city: string | null;
+  is_online: boolean;
+  slug: string;
+}
 
-function OrderSummary() {
+interface OrderResult {
+  reference: string;
+  buyerEmail: string;
+  eventTitle: string;
+  eventDate: string;
+  eventVenue: string;
+}
+
+function useCheckoutData() {
+  const searchParams = useSearchParams();
+  const [event, setEvent] = useState<EventInfo | null>(null);
+  const [tickets, setTickets] = useState<TicketSelection[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      const eventSlug = searchParams.get("event");
+      const ticketsParam = searchParams.get("tickets");
+
+      if (!eventSlug || !ticketsParam) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const parsed: TicketSelection[] = JSON.parse(ticketsParam);
+        setTickets(parsed);
+      } catch {
+        setLoading(false);
+        return;
+      }
+
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("events")
+        .select("id, title, start_date, venue_name, venue_city, is_online, slug")
+        .eq("slug", eventSlug)
+        .single();
+
+      if (data) setEvent(data);
+      setLoading(false);
+    }
+    load();
+  }, [searchParams]);
+
+  return { event, tickets, loading };
+}
+
+function OrderSummary({ event, tickets }: { event: EventInfo; tickets: TicketSelection[] }) {
+  const startDate = new Date(event.start_date);
+  const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const venue = event.is_online ? "Online Event" : [event.venue_name, event.venue_city].filter(Boolean).join(", ");
+
+  const subtotal = tickets.reduce((s, t) => s + t.price * t.qty, 0);
+  const serviceFee = Math.round(subtotal * 0.1);
+  const total = subtotal + serviceFee;
+
   return (
     <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-5 sticky top-24">
       <h3 className="font-semibold text-neutral-900 text-sm mb-4">Order Summary</h3>
       <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-100 mb-4">
-        <p className="font-semibold text-neutral-800 text-sm">{ORDER.event}</p>
-        <p className="text-xs text-neutral-500 mt-1">{ORDER.date}</p>
-        <p className="text-xs text-neutral-500">{ORDER.venue}</p>
+        <p className="font-semibold text-neutral-800 text-sm">{event.title}</p>
+        <p className="text-xs text-neutral-500 mt-1">{dateStr} · {timeStr}</p>
+        <p className="text-xs text-neutral-500">{venue}</p>
       </div>
       <div className="space-y-2 mb-3">
-        {ORDER.items.filter((i) => i.qty > 0).map((item) => (
-          <div key={item.name} className="flex justify-between text-sm">
+        {tickets.filter((i) => i.qty > 0).map((item) => (
+          <div key={item.id} className="flex justify-between text-sm">
             <span className="text-neutral-600">{item.name} × {item.qty}</span>
-            <span className="font-medium text-neutral-900">${(item.price * item.qty).toFixed(2)}</span>
+            <span className="font-medium text-neutral-900">${((item.price * item.qty) / 100).toFixed(2)}</span>
           </div>
         ))}
         <div className="flex justify-between text-sm text-neutral-500">
-          <span>Service fee</span><span>${ORDER.serviceFee.toFixed(2)}</span>
+          <span>Service fee</span><span>${(serviceFee / 100).toFixed(2)}</span>
         </div>
       </div>
       <Separator className="my-3" />
       <div className="flex justify-between font-bold text-neutral-900">
-        <span>Total</span><span>${total.toFixed(2)}</span>
+        <span>Total</span><span>${(total / 100).toFixed(2)}</span>
       </div>
       <div className="flex items-center gap-1.5 mt-4">
         <Shield className="w-3.5 h-3.5 text-success-500" />
@@ -57,56 +119,178 @@ function OrderSummary() {
   );
 }
 
-function StepDetails({ onNext }: { onNext: () => void }) {
+function StepDetails({ onNext, buyerName, setBuyerName, buyerEmail, setBuyerEmail, tickets }: {
+  onNext: () => void;
+  buyerName: string;
+  setBuyerName: (v: string) => void;
+  buyerEmail: string;
+  setBuyerEmail: (v: string) => void;
+  tickets: TicketSelection[];
+}) {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+
+  useEffect(() => {
+    setBuyerName(`${firstName} ${lastName}`.trim());
+  }, [firstName, lastName, setBuyerName]);
+
   return (
     <div className="space-y-5">
       <h2 className="font-bold text-neutral-900 text-lg">Your Information</h2>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-sm font-medium text-neutral-700">First Name *</Label>
-          <Input placeholder="Ahmad" className="h-11 border-neutral-200" />
+          <Input placeholder="Ahmad" className="h-11 border-neutral-200" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
         </div>
         <div className="space-y-1.5">
           <Label className="text-sm font-medium text-neutral-700">Last Name *</Label>
-          <Input placeholder="Razali" className="h-11 border-neutral-200" />
+          <Input placeholder="Razali" className="h-11 border-neutral-200" value={lastName} onChange={(e) => setLastName(e.target.value)} />
         </div>
       </div>
       <div className="space-y-1.5">
         <Label className="text-sm font-medium text-neutral-700">Email Address *</Label>
-        <Input type="email" placeholder="ahmad@example.com" className="h-11 border-neutral-200" />
+        <Input type="email" placeholder="ahmad@example.com" className="h-11 border-neutral-200" value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} />
         <p className="text-xs text-neutral-400">Tickets will be sent to this email.</p>
       </div>
       <div className="space-y-1.5">
         <Label className="text-sm font-medium text-neutral-700">Phone Number</Label>
-        <Input type="tel" placeholder="+60 12-345 6789" className="h-11 border-neutral-200" />
+        <Input type="tel" placeholder="+60 12-345 6789" className="h-11 border-neutral-200" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
-      <Separator />
-      <h3 className="font-semibold text-neutral-800">Attendee #1 — General Admission</h3>
-      <div className="space-y-1.5">
-        <Label className="text-sm font-medium text-neutral-700">Full Name *</Label>
-        <Input placeholder="Attendee full name" className="h-11 border-neutral-200" />
-      </div>
-      <div className="flex items-center gap-2">
-        <input type="checkbox" id="same-as-buyer" className="w-4 h-4 accent-primary-600 rounded" />
-        <Label htmlFor="same-as-buyer" className="text-sm text-neutral-600 cursor-pointer">Same as buyer info</Label>
-      </div>
-      <Button onClick={onNext} className="w-full h-11 gradient-primary text-white border-0 font-semibold">
+
+      {tickets.map((ticket, idx) => (
+        Array.from({ length: ticket.qty }).map((_, i) => {
+          const attendeeNum = tickets.slice(0, idx).reduce((s, t) => s + t.qty, 0) + i + 1;
+          return (
+            <div key={`${ticket.id}-${i}`}>
+              <Separator />
+              <h3 className="font-semibold text-neutral-800 mt-4">Attendee #{attendeeNum} — {ticket.name}</h3>
+              <div className="space-y-1.5 mt-3">
+                <Label className="text-sm font-medium text-neutral-700">Full Name *</Label>
+                <Input placeholder="Attendee full name" className="h-11 border-neutral-200" />
+              </div>
+              {attendeeNum === 1 && (
+                <div className="flex items-center gap-2 mt-2">
+                  <input type="checkbox" id="same-as-buyer" className="w-4 h-4 accent-primary-600 rounded" />
+                  <Label htmlFor="same-as-buyer" className="text-sm text-neutral-600 cursor-pointer">Same as buyer info</Label>
+                </div>
+              )}
+            </div>
+          );
+        })
+      ))}
+
+      <Button onClick={onNext} disabled={!firstName || !lastName || !buyerEmail} className="w-full h-11 gradient-primary text-white border-0 font-semibold">
         Continue to Payment →
       </Button>
     </div>
   );
 }
 
-function StepPayment({ onNext }: { onNext: () => void }) {
+function StepPayment({ onNext, tickets, event, buyerName, buyerEmail }: {
+  onNext: (order: OrderResult) => void;
+  tickets: TicketSelection[];
+  event: EventInfo;
+  buyerName: string;
+  buyerEmail: string;
+}) {
   const [method, setMethod] = useState("card");
   const [showCVV, setShowCVV] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const subtotal = tickets.reduce((s, t) => s + t.price * t.qty, 0);
+  const serviceFee = Math.round(subtotal * 0.1);
+  const total = subtotal + serviceFee;
+
   async function pay() {
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const supabase = createClient();
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("Please sign in to complete your purchase.");
+        setLoading(false);
+        return;
+      }
+
+      // Generate unique reference
+      const year = new Date().getFullYear();
+      const random5 = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
+      const reference = `EVT-${year}-${random5}`;
+
+      // Create order
+      const { data: order, error: orderError } = await supabase
+        .from("orders")
+        .insert({
+          reference,
+          event_id: event.id,
+          buyer_id: user.id,
+          buyer_name: buyerName,
+          buyer_email: buyerEmail,
+          subtotal,
+          service_fee: serviceFee,
+          total,
+          currency: "USD",
+          status: "paid",
+          promo_code: null,
+          discount: 0,
+        })
+        .select("id")
+        .single();
+
+      if (orderError || !order) {
+        console.error("Order creation failed:", orderError);
+        alert("Failed to create order. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      // Create order_tickets
+      const orderTickets: { order_id: string; ticket_type_id: string; attendee_name: string; attendee_email: string; qr_code: string }[] = [];
+      let ticketIndex = 0;
+      for (const ticket of tickets) {
+        for (let i = 0; i < ticket.qty; i++) {
+          orderTickets.push({
+            order_id: order.id,
+            ticket_type_id: ticket.id,
+            attendee_name: buyerName,
+            attendee_email: buyerEmail,
+            qr_code: `qr-${order.id}-${ticketIndex}`,
+          });
+          ticketIndex++;
+        }
+      }
+
+      const { error: ticketsError } = await supabase
+        .from("order_tickets")
+        .insert(orderTickets);
+
+      if (ticketsError) {
+        console.error("Tickets creation failed:", ticketsError);
+        alert("Failed to create tickets. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      const startDate = new Date(event.start_date);
+      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      const venue = event.is_online ? "Online Event" : [event.venue_name, event.venue_city].filter(Boolean).join(", ");
+
+      onNext({
+        reference,
+        buyerEmail,
+        eventTitle: event.title,
+        eventDate: `${dateStr} · ${timeStr}`,
+        eventVenue: venue,
+      });
+    } catch (err) {
+      console.error("Payment error:", err);
+      alert("An unexpected error occurred. Please try again.");
+    }
     setLoading(false);
-    onNext();
   }
 
   return (
@@ -116,9 +300,9 @@ function StepPayment({ onNext }: { onNext: () => void }) {
       {/* Method selector */}
       <div className="flex gap-3">
         {[
-          { id: "card",   label: "💳 Card" },
-          { id: "paypal", label: "🅿 PayPal" },
-          { id: "fpx",    label: "🏦 FPX" },
+          { id: "card",   label: "Card" },
+          { id: "paypal", label: "PayPal" },
+          { id: "fpx",    label: "FPX" },
         ].map(({ id, label }) => (
           <button key={id} onClick={() => setMethod(id)}
             className={cn(
@@ -145,7 +329,7 @@ function StepPayment({ onNext }: { onNext: () => void }) {
             <div className="space-y-1.5">
               <Label className="text-sm font-medium text-neutral-700">CVV</Label>
               <div className="relative">
-                <Input type={showCVV ? "text" : "password"} placeholder="•••" className="h-11 border-neutral-200 pr-10" />
+                <Input type={showCVV ? "text" : "password"} placeholder="..." className="h-11 border-neutral-200 pr-10" />
                 <button type="button" onClick={() => setShowCVV(!showCVV)} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400">
                   {showCVV ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -186,27 +370,27 @@ function StepPayment({ onNext }: { onNext: () => void }) {
         {loading ? (
           <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</>
         ) : (
-          <><Lock className="w-4 h-4 mr-2" />Pay ${total.toFixed(2)}</>
+          <><Lock className="w-4 h-4 mr-2" />Pay ${(total / 100).toFixed(2)}</>
         )}
       </Button>
     </div>
   );
 }
 
-function StepConfirmation() {
+function StepConfirmation({ order }: { order: OrderResult }) {
   return (
     <div className="text-center py-4">
       <div className="inline-flex w-20 h-20 rounded-full bg-success-50 items-center justify-center mb-5">
         <Check className="w-10 h-10 text-success-500" />
       </div>
-      <h2 className="text-2xl font-extrabold text-neutral-900 mb-2">You&apos;re going! 🎉</h2>
-      <p className="text-neutral-500 mb-1">Order <strong className="font-mono text-neutral-700">EVT-2026-00843</strong> confirmed</p>
-      <p className="text-sm text-neutral-400 mb-8">Tickets sent to ahmad@example.com</p>
+      <h2 className="text-2xl font-extrabold text-neutral-900 mb-2">You&apos;re going!</h2>
+      <p className="text-neutral-500 mb-1">Order <strong className="font-mono text-neutral-700">{order.reference}</strong> confirmed</p>
+      <p className="text-sm text-neutral-400 mb-8">Tickets sent to {order.buyerEmail}</p>
 
       {/* Ticket preview */}
       <div className="bg-neutral-50 border border-neutral-100 rounded-2xl p-5 mb-6 text-left">
-        <p className="font-bold text-neutral-900">{ORDER.event}</p>
-        <p className="text-sm text-neutral-500 mt-0.5">{ORDER.date} · {ORDER.venue}</p>
+        <p className="font-bold text-neutral-900">{order.eventTitle}</p>
+        <p className="text-sm text-neutral-500 mt-0.5">{order.eventDate} · {order.eventVenue}</p>
         <div className="mt-4 flex items-center justify-center">
           <div className="grid grid-cols-8 gap-0.5 w-32 h-32">
             {Array.from({ length: 64 }).map((_, i) => (
@@ -214,7 +398,7 @@ function StepConfirmation() {
             ))}
           </div>
         </div>
-        <p className="text-center text-xs text-neutral-400 mt-2 font-mono">EVT-2026-00843</p>
+        <p className="text-center text-xs text-neutral-400 mt-2 font-mono">{order.reference}</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -229,12 +413,35 @@ function StepConfirmation() {
 
 export default function CheckoutPage() {
   const [step, setStep] = useState(0);
+  const [buyerName, setBuyerName] = useState("");
+  const [buyerEmail, setBuyerEmail] = useState("");
+  const [orderResult, setOrderResult] = useState<OrderResult | null>(null);
+  const { event, tickets, loading } = useCheckoutData();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-50 pt-16 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (!event || tickets.length === 0) {
+    return (
+      <div className="min-h-screen bg-neutral-50 pt-16 flex flex-col items-center justify-center gap-4">
+        <p className="text-neutral-500">No checkout session found.</p>
+        <Button asChild variant="outline">
+          <Link href="/events">Browse Events</Link>
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50 pt-16">
       <div className="max-w-5xl mx-auto px-4 py-8">
         {/* Back link */}
-        <Link href="/events" className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-700 mb-6">
+        <Link href={`/e/${event.slug}`} className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-700 mb-6">
           <ChevronLeft className="w-4 h-4" />Back to event
         </Link>
 
@@ -266,13 +473,13 @@ export default function CheckoutPage() {
         {/* Content grid */}
         <div className="grid lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 bg-white rounded-2xl border border-neutral-100 shadow-sm p-6 sm:p-8">
-            {step === 0 && <StepDetails onNext={() => setStep(1)} />}
-            {step === 1 && <StepPayment onNext={() => setStep(2)} />}
-            {step === 2 && <StepConfirmation />}
+            {step === 0 && <StepDetails onNext={() => setStep(1)} buyerName={buyerName} setBuyerName={setBuyerName} buyerEmail={buyerEmail} setBuyerEmail={setBuyerEmail} tickets={tickets} />}
+            {step === 1 && <StepPayment onNext={(order) => { setOrderResult(order); setStep(2); }} tickets={tickets} event={event} buyerName={buyerName} buyerEmail={buyerEmail} />}
+            {step === 2 && orderResult && <StepConfirmation order={orderResult} />}
           </div>
           {step < 2 && (
             <div className="lg:col-span-1">
-              <OrderSummary />
+              <OrderSummary event={event} tickets={tickets} />
             </div>
           )}
         </div>

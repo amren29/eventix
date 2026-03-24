@@ -115,7 +115,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
 
           {/* Right — ticket widget */}
           <div className="lg:col-span-1">
-            <TicketWidget tickets={visibleTickets} />
+            <TicketWidget tickets={visibleTickets} eventSlug={slug} />
           </div>
         </div>
       </div>

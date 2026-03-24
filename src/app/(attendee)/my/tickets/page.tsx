@@ -1,40 +1,77 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Download, Send, ArrowRight, CalendarDays, MapPin, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { createClient } from "@/lib/supabase/server";
 
-const TICKETS = [
-  {
-    id: "EVT-2026-00842",
-    event: "Tech Summit KL 2026",
-    date: "Sat, Mar 15, 2026 · 2:00 PM",
-    venue: "Axiata Arena, Kuala Lumpur",
-    ticket: "General Admission",
-    status: "upcoming",
-    emoji: "🏢",
-  },
-  {
-    id: "EVT-2026-01103",
-    event: "Bass Nation Festival",
-    date: "Fri, Apr 5, 2026 · 8:00 PM",
-    venue: "Stadium Merdeka, KL",
-    ticket: "VIP Package",
-    status: "upcoming",
-    emoji: "🎵",
-  },
-  {
-    id: "EVT-2025-00512",
-    event: "DevSummit Malaysia 2025",
-    date: "Sat, Dec 7, 2025 · 9:00 AM",
-    venue: "Connexion, Bangsar South",
-    ticket: "General Admission",
-    status: "past",
-    emoji: "💻",
-  },
-];
+export default async function MyTicketsPage() {
+  const supabase = await createClient();
 
-export default function MyTicketsPage() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: tickets } = await supabase
+    .from("order_tickets")
+    .select(`
+      id,
+      attendee_name,
+      attendee_email,
+      qr_code,
+      checked_in_at,
+      order:orders!inner(
+        id,
+        reference,
+        status,
+        event:events!inner(
+          id,
+          title,
+          slug,
+          start_date,
+          end_date,
+          venue_name,
+          venue_city,
+          is_online
+        )
+      ),
+      ticket_type:ticket_types(
+        id,
+        name
+      )
+    `)
+    .eq("orders.buyer_id", user.id)
+    .order("created_at", { ascending: false });
+
+  const allTickets = (tickets || []).map((t: any) => {
+    const event = t.order?.event;
+    const startDate = event ? new Date(event.start_date) : null;
+    const now = new Date();
+    const isUpcoming = startDate ? startDate > now : false;
+    const isCancelled = t.order?.status === "refunded" || t.order?.status === "cancelled";
+
+    let status: "upcoming" | "past" | "cancelled" = "past";
+    if (isCancelled) status = "cancelled";
+    else if (isUpcoming) status = "upcoming";
+
+    const dateStr = startDate
+      ? `${startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · ${startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+      : "";
+    const venue = event?.is_online
+      ? "Online Event"
+      : [event?.venue_name, event?.venue_city].filter(Boolean).join(", ");
+
+    return {
+      id: t.order?.reference || t.id,
+      event: event?.title || "Unknown Event",
+      slug: event?.slug || "",
+      date: dateStr,
+      venue,
+      ticket: t.ticket_type?.name || "Ticket",
+      status,
+    };
+  });
+
   return (
     <div className="space-y-5">
       <div>
@@ -53,12 +90,20 @@ export default function MyTicketsPage() {
       </Tabs>
 
       <div className="space-y-4">
-        {TICKETS.map((ticket) => (
-          <div key={ticket.id} className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
+        {allTickets.length === 0 && (
+          <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-8 text-center">
+            <p className="text-neutral-500 text-sm">No tickets found. Browse events to get started!</p>
+            <Button asChild className="mt-4" variant="outline">
+              <Link href="/events">Browse Events</Link>
+            </Button>
+          </div>
+        )}
+        {allTickets.map((ticket, idx) => (
+          <div key={`${ticket.id}-${idx}`} className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
             <div className="flex items-start gap-4 p-5">
-              {/* Emoji banner */}
+              {/* Icon */}
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center text-3xl flex-shrink-0">
-                {ticket.emoji}
+                <CalendarDays className="w-7 h-7 text-primary-500" />
               </div>
 
               {/* Info */}
@@ -70,6 +115,8 @@ export default function MyTicketsPage() {
                   </div>
                   <Badge className={ticket.status === "upcoming"
                     ? "bg-success-50 text-success-700 border-success-100 text-[10px]"
+                    : ticket.status === "cancelled"
+                    ? "bg-danger-50 text-danger-700 border-danger-100 text-[10px]"
                     : "bg-neutral-100 text-neutral-500 border-neutral-200 text-[10px]"
                   }>
                     {ticket.status}
@@ -94,8 +141,8 @@ export default function MyTicketsPage() {
               <Button size="sm" variant="outline" className="h-8 text-xs border-neutral-200 flex items-center gap-1.5">
                 <Send className="w-3.5 h-3.5" />Transfer
               </Button>
-              {ticket.status === "upcoming" && (
-                <Link href={`/e/tech-summit-kl-2026`} className="ml-auto text-xs text-primary-600 hover:underline flex items-center gap-1">
+              {ticket.status === "upcoming" && ticket.slug && (
+                <Link href={`/e/${ticket.slug}`} className="ml-auto text-xs text-primary-600 hover:underline flex items-center gap-1">
                   Event details <ArrowRight className="w-3 h-3" />
                 </Link>
               )}

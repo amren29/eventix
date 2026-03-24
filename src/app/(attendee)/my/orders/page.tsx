@@ -1,20 +1,68 @@
+import { redirect } from "next/navigation";
 import { Download, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-
-const ORDERS = [
-  { id: "EVT-2026-00842", event: "Tech Summit KL 2026",  items: "1× General Admission",    total: "$27.50", date: "Mar 1, 2026",  status: "paid" },
-  { id: "EVT-2026-01103", event: "Bass Nation Festival",  items: "2× VIP Package",          total: "$178.00", date: "Mar 1, 2026", status: "paid" },
-  { id: "EVT-2025-00512", event: "DevSummit MY 2025",    items: "1× General Admission",    total: "$25.00", date: "Nov 10, 2025", status: "paid" },
-  { id: "EVT-2025-00201", event: "KL Art Expo 2025",     items: "2× Standard Entry",       total: "$44.00", date: "Apr 5, 2025",  status: "refunded" },
-];
+import { createClient } from "@/lib/supabase/server";
 
 const statusStyle: Record<string, string> = {
-  paid:     "bg-success-50 text-success-700 border-success-100",
-  refunded: "bg-neutral-100 text-neutral-500 border-neutral-200",
+  paid:      "bg-success-50 text-success-700 border-success-100",
+  pending:   "bg-warning-50 text-warning-700 border-warning-100",
+  refunded:  "bg-neutral-100 text-neutral-500 border-neutral-200",
+  cancelled: "bg-neutral-100 text-neutral-500 border-neutral-200",
 };
 
-export default function MyOrdersPage() {
+export default async function MyOrdersPage() {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: orders } = await supabase
+    .from("orders")
+    .select(`
+      id,
+      reference,
+      total,
+      currency,
+      status,
+      created_at,
+      event:events!inner(
+        id,
+        title,
+        slug
+      ),
+      order_tickets(
+        id,
+        ticket_type:ticket_types(name)
+      )
+    `)
+    .eq("buyer_id", user.id)
+    .order("created_at", { ascending: false });
+
+  const allOrders = (orders || []).map((order: any) => {
+    // Summarize ticket items
+    const ticketCounts: Record<string, number> = {};
+    for (const ot of order.order_tickets || []) {
+      const name = ot.ticket_type?.name || "Ticket";
+      ticketCounts[name] = (ticketCounts[name] || 0) + 1;
+    }
+    const itemsSummary = Object.entries(ticketCounts)
+      .map(([name, count]) => `${count}× ${name}`)
+      .join(", ") || "No tickets";
+
+    const dateStr = new Date(order.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+    return {
+      id: order.reference,
+      event: order.event?.title || "Unknown Event",
+      slug: order.event?.slug || "",
+      items: itemsSummary,
+      total: `$${(order.total / 100).toFixed(2)}`,
+      date: dateStr,
+      status: order.status || "paid",
+    };
+  });
+
   return (
     <div className="space-y-5">
       <div>
@@ -35,7 +83,14 @@ export default function MyOrdersPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-50">
-            {ORDERS.map((order) => (
+            {allOrders.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-5 py-8 text-center text-sm text-neutral-500">
+                  No orders found.
+                </td>
+              </tr>
+            )}
+            {allOrders.map((order) => (
               <tr key={order.id} className="hover:bg-neutral-50/50 transition-colors">
                 <td className="px-5 py-4">
                   <code className="text-xs font-mono text-primary-600">{order.id}</code>
@@ -52,7 +107,7 @@ export default function MyOrdersPage() {
                   <p className="font-bold text-neutral-900 text-sm">{order.total}</p>
                 </td>
                 <td className="px-5 py-4 text-center">
-                  <Badge className={`text-[10px] px-2 h-5 border capitalize ${statusStyle[order.status]}`}>{order.status}</Badge>
+                  <Badge className={`text-[10px] px-2 h-5 border capitalize ${statusStyle[order.status] || statusStyle.paid}`}>{order.status}</Badge>
                 </td>
                 <td className="px-3 py-4">
                   <div className="flex gap-1">

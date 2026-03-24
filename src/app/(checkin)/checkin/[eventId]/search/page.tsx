@@ -1,28 +1,63 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Search, CheckCircle2, Clock, UserCheck } from "lucide-react";
+import { ArrowLeft, Search, CheckCircle2, Clock, UserCheck, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
-const ATTENDEES = [
-  { name: "John Doe",   email: "john@example.com",  ticket: "VIP Package", order: "EVT-00842", checkedIn: false },
-  { name: "Sara Kwan",  email: "sara@example.com",  ticket: "General",     order: "EVT-00841", checkedIn: true,  checkedAt: "2:34 PM" },
-  { name: "Amir Zul",   email: "amir@example.com",  ticket: "Early Bird",  order: "EVT-00840", checkedIn: true,  checkedAt: "2:41 PM" },
-  { name: "Priya N.",   email: "priya@example.com", ticket: "General",     order: "EVT-00839", checkedIn: false },
-  { name: "Daniel M.",  email: "dan@example.com",   ticket: "VIP Package", order: "EVT-00838", checkedIn: false },
-  { name: "Lisa Tan",   email: "lisa@example.com",  ticket: "General",     order: "EVT-00837", checkedIn: false },
-];
-
-type Attendee = typeof ATTENDEES[0] & { checkedAt?: string };
+interface Attendee {
+  id: string;
+  name: string;
+  email: string;
+  ticket: string;
+  order: string;
+  checkedIn: boolean;
+  checkedAt?: string;
+}
 
 export default function SearchPage({ params }: { params: { eventId: string } }) {
-  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
-  const [attendees, setAttendees] = useState<Attendee[]>(ATTENDEES);
+  const [attendees, setAttendees] = useState<Attendee[]>([]);
+  const [loading, setLoading] = useState(true);
   const [justCheckedIn, setJustCheckedIn] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("order_tickets")
+        .select(`
+          id,
+          attendee_name,
+          attendee_email,
+          checked_in_at,
+          order:orders!inner(
+            reference,
+            event_id
+          ),
+          ticket_type:ticket_types(name)
+        `)
+        .eq("orders.event_id", params.eventId);
+
+      const mapped: Attendee[] = (data || []).map((t: any) => ({
+        id: t.id,
+        name: t.attendee_name || "Unknown",
+        email: t.attendee_email || "",
+        ticket: t.ticket_type?.name || "Ticket",
+        order: t.order?.reference || "",
+        checkedIn: !!t.checked_in_at,
+        checkedAt: t.checked_in_at
+          ? new Date(t.checked_in_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+          : undefined,
+      }));
+
+      setAttendees(mapped);
+      setLoading(false);
+    }
+    load();
+  }, [params.eventId]);
 
   const filtered = query.length >= 2
     ? attendees.filter((a) =>
@@ -32,13 +67,26 @@ export default function SearchPage({ params }: { params: { eventId: string } }) 
       )
     : [];
 
-  function checkIn(order: string) {
+  async function checkIn(attendeeId: string) {
+    const supabase = createClient();
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("order_tickets")
+      .update({ checked_in_at: now })
+      .eq("id", attendeeId);
+
+    if (error) {
+      console.error("Check-in failed:", error);
+      return;
+    }
+
     setAttendees((prev) => prev.map((a) =>
-      a.order === order
+      a.id === attendeeId
         ? { ...a, checkedIn: true, checkedAt: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) }
         : a
     ));
-    setJustCheckedIn(order);
+    setJustCheckedIn(attendeeId);
     setTimeout(() => setJustCheckedIn(null), 2000);
   }
 
@@ -63,14 +111,21 @@ export default function SearchPage({ params }: { params: { eventId: string } }) 
 
       {/* Results */}
       <div className="flex-1 overflow-y-auto">
-        {query.length < 2 && (
+        {loading && (
+          <div className="flex flex-col items-center justify-center h-64 gap-3">
+            <Loader2 className="w-8 h-8 text-neutral-500 animate-spin" />
+            <p className="text-neutral-500 text-sm">Loading attendees...</p>
+          </div>
+        )}
+
+        {!loading && query.length < 2 && (
           <div className="flex flex-col items-center justify-center h-64 gap-3">
             <Search className="w-10 h-10 text-neutral-700" />
             <p className="text-neutral-500 text-sm">Type at least 2 characters to search</p>
           </div>
         )}
 
-        {query.length >= 2 && filtered.length === 0 && (
+        {!loading && query.length >= 2 && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center h-64 gap-3">
             <p className="text-neutral-500 text-sm">No attendees found for &quot;{query}&quot;</p>
           </div>
@@ -78,10 +133,10 @@ export default function SearchPage({ params }: { params: { eventId: string } }) 
 
         {filtered.map((attendee) => (
           <div
-            key={attendee.order}
+            key={attendee.id}
             className={cn(
               "flex items-center gap-3 px-4 py-4 border-b border-white/5 transition-colors",
-              justCheckedIn === attendee.order ? "bg-success-500/10" : "hover:bg-white/5"
+              justCheckedIn === attendee.id ? "bg-success-500/10" : "hover:bg-white/5"
             )}
           >
             {/* Avatar */}
@@ -115,7 +170,7 @@ export default function SearchPage({ params }: { params: { eventId: string } }) 
               </div>
             ) : (
               <button
-                onClick={() => checkIn(attendee.order)}
+                onClick={() => checkIn(attendee.id)}
                 className="flex items-center gap-1.5 bg-primary-600 hover:bg-primary-500 active:scale-95 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-all flex-shrink-0"
               >
                 <UserCheck className="w-3.5 h-3.5" />

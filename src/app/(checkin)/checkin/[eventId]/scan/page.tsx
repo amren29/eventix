@@ -4,29 +4,59 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft, Search, Wifi, MoreVertical,
+  ArrowLeft, Search, MoreVertical,
   CheckCircle2, XCircle, AlertTriangle, Scan,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 type ScanState = "idle" | "scanning" | "success" | "duplicate" | "invalid";
 
-const MOCK_RESULTS = [
-  { state: "success" as ScanState,   name: "John Doe",  ticket: "VIP Package",   order: "EVT-00842" },
-  { state: "duplicate" as ScanState, name: "Sara Kwan", ticket: "General",       order: "EVT-00841", time: "2:34 PM" },
-  { state: "invalid" as ScanState,   name: "",          ticket: "",              order: "" },
-];
-
-let mockIdx = 0;
+interface ScanResult {
+  state: ScanState;
+  name: string;
+  ticket: string;
+  order: string;
+  time?: string;
+}
 
 export default function ScanPage({ params }: { params: { eventId: string } }) {
   const searchParams = useSearchParams();
   const gateName = searchParams.get("gateName") ?? "Main Entry";
 
   const [scanState, setScanState] = useState<ScanState>("idle");
-  const [result, setResult] = useState<(typeof MOCK_RESULTS)[0] | null>(null);
+  const [result, setResult] = useState<ScanResult | null>(null);
   const [checkedIn, setCheckedIn] = useState(0);
-  const total = 842;
+  const [total, setTotal] = useState(0);
+  const [scanIndex, setScanIndex] = useState(0);
+  const [allTickets, setAllTickets] = useState<any[]>([]);
+
+  // Load all order_tickets for this event on mount
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("order_tickets")
+        .select(`
+          id,
+          qr_code,
+          attendee_name,
+          checked_in_at,
+          order:orders!inner(
+            reference,
+            event_id
+          ),
+          ticket_type:ticket_types(name)
+        `)
+        .eq("orders.event_id", params.eventId);
+
+      const tickets = data || [];
+      setAllTickets(tickets);
+      setTotal(tickets.length);
+      setCheckedIn(tickets.filter((t: any) => !!t.checked_in_at).length);
+    }
+    load();
+  }, [params.eventId]);
 
   // Reset idle after showing result
   useEffect(() => {
@@ -36,18 +66,90 @@ export default function ScanPage({ params }: { params: { eventId: string } }) {
     }
   }, [scanState]);
 
-  function simulateScan() {
+  async function simulateScan() {
     setScanState("scanning");
-    setTimeout(() => {
-      const mock = MOCK_RESULTS[mockIdx % MOCK_RESULTS.length];
-      mockIdx++;
-      setResult(mock);
-      setScanState(mock.state);
-      if (mock.state === "success") setCheckedIn((n) => n + 1);
+
+    setTimeout(async () => {
+      // Cycle through tickets to simulate scanning; if no tickets, show invalid
+      if (allTickets.length === 0) {
+        setResult({ state: "invalid", name: "", ticket: "", order: "" });
+        setScanState("invalid");
+        return;
+      }
+
+      const ticket = allTickets[scanIndex % allTickets.length];
+      setScanIndex((i) => i + 1);
+
+      const qrCode = ticket.qr_code;
+
+      // Look up the ticket by qr_code and validate it belongs to this event
+      const supabase = createClient();
+      const { data: found } = await supabase
+        .from("order_tickets")
+        .select(`
+          id,
+          qr_code,
+          attendee_name,
+          checked_in_at,
+          order:orders!inner(
+            reference,
+            event_id
+          ),
+          ticket_type:ticket_types(name)
+        `)
+        .eq("qr_code", qrCode)
+        .eq("orders.event_id", params.eventId)
+        .single();
+
+      if (!found) {
+        setResult({ state: "invalid", name: "", ticket: "", order: "" });
+        setScanState("invalid");
+        return;
+      }
+
+      // Already checked in?
+      if (found.checked_in_at) {
+        const checkedTime = new Date(found.checked_in_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+        setResult({
+          state: "duplicate",
+          name: found.attendee_name || "Unknown",
+          ticket: (found as any).ticket_type?.name || "Ticket",
+          order: (found as any).order?.reference || "",
+          time: checkedTime,
+        });
+        setScanState("duplicate");
+        return;
+      }
+
+      // Mark as checked in
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from("order_tickets")
+        .update({ checked_in_at: now, checked_in_gate: gateName })
+        .eq("id", found.id);
+
+      if (error) {
+        console.error("Check-in failed:", error);
+        setResult({ state: "invalid", name: "", ticket: "", order: "" });
+        setScanState("invalid");
+        return;
+      }
+
+      // Update local state
+      setAllTickets((prev) => prev.map((t: any) => t.id === found.id ? { ...t, checked_in_at: now } : t));
+      setCheckedIn((n) => n + 1);
+
+      setResult({
+        state: "success",
+        name: found.attendee_name || "Unknown",
+        ticket: (found as any).ticket_type?.name || "Ticket",
+        order: (found as any).order?.reference || "",
+      });
+      setScanState("success");
     }, 600);
   }
 
-  const pct = Math.round((checkedIn / total) * 100);
+  const pct = total > 0 ? Math.round((checkedIn / total) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-neutral-950 flex flex-col select-none">

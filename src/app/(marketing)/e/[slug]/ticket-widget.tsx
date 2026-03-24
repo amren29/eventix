@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Minus, Plus, Tag, ChevronDown, ChevronUp, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,8 @@ interface TicketType {
   quantity_sold: number;
 }
 
-export function TicketWidget({ tickets: initialTickets }: { tickets: TicketType[] }) {
+export function TicketWidget({ tickets: initialTickets, eventSlug }: { tickets: TicketType[]; eventSlug?: string }) {
+  const router = useRouter();
   const [quantities, setQuantities] = useState<Record<string, number>>(
     Object.fromEntries(initialTickets.map((t) => [t.id, 0]))
   );
@@ -35,6 +36,19 @@ export function TicketWidget({ tickets: initialTickets }: { tickets: TicketType[
   const serviceFee = Math.round(subtotal * 0.1);
   const total = subtotal + serviceFee;
   const hasTickets = Object.values(quantities).some((q) => q > 0);
+
+  function handleGetTickets() {
+    const selections = initialTickets
+      .filter((t) => (quantities[t.id] || 0) > 0)
+      .map((t) => ({ id: t.id, name: t.name, qty: quantities[t.id], price: t.price }));
+
+    const params = new URLSearchParams();
+    if (eventSlug) params.set("event", eventSlug);
+    params.set("tickets", JSON.stringify(selections));
+    if (promoCode) params.set("promo", promoCode);
+
+    router.push(`/checkout/new?${params.toString()}`);
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-neutral-100 shadow-lg p-5 sticky top-24">
@@ -115,6 +129,7 @@ export function TicketWidget({ tickets: initialTickets }: { tickets: TicketType[
 
       <Button
         disabled={!hasTickets}
+        onClick={handleGetTickets}
         className="w-full h-11 gradient-primary text-white border-0 font-semibold shadow-sm hover:opacity-90 disabled:opacity-40"
       >
         {hasTickets ? "Get Tickets →" : "Select tickets above"}
