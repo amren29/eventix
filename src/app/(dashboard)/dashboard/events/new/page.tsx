@@ -19,6 +19,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const STEPS = [
   { id: 1, label: "Basic Info" },
@@ -556,10 +557,13 @@ export default function NewEventPage() {
         if (ticketError) throw ticketError;
       }
 
+      toast.success(status === "published" ? "Event published!" : "Draft saved!");
       router.push("/dashboard/events");
       router.refresh();
     } catch (err: any) {
-      setError(err.message || "Failed to create event");
+      const message = err.message || "Failed to create event";
+      setError(message);
+      toast.error(message);
       setPublishing(false);
     }
   }

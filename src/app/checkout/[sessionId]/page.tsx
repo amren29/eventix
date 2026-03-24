@@ -378,6 +378,16 @@ function StepPayment({ onNext, tickets, event, buyerName, buyerEmail }: {
 }
 
 function StepConfirmation({ order }: { order: OrderResult }) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    import("qrcode").then((QRCode) => {
+      QRCode.toDataURL(order.reference).then((url) => {
+        setQrDataUrl(url);
+      });
+    });
+  }, [order.reference]);
+
   return (
     <div className="text-center py-4">
       <div className="inline-flex w-20 h-20 rounded-full bg-success-50 items-center justify-center mb-5">
@@ -392,11 +402,11 @@ function StepConfirmation({ order }: { order: OrderResult }) {
         <p className="font-bold text-neutral-900">{order.eventTitle}</p>
         <p className="text-sm text-neutral-500 mt-0.5">{order.eventDate} · {order.eventVenue}</p>
         <div className="mt-4 flex items-center justify-center">
-          <div className="grid grid-cols-8 gap-0.5 w-32 h-32">
-            {Array.from({ length: 64 }).map((_, i) => (
-              <div key={i} className={cn("w-full aspect-square rounded-[1px]", Math.random() > 0.5 ? "bg-neutral-900" : "bg-white")} />
-            ))}
-          </div>
+          {qrDataUrl ? (
+            <img src={qrDataUrl} alt="QR Code" className="w-32 h-32" />
+          ) : (
+            <div className="w-32 h-32 bg-neutral-100 rounded animate-pulse" />
+          )}
         </div>
         <p className="text-center text-xs text-neutral-400 mt-2 font-mono">{order.reference}</p>
       </div>

@@ -1,6 +1,9 @@
 import Link from "next/link";
-import { Zap, Ticket, Package, Bookmark, User, Bell, LogOut } from "lucide-react";
+import { redirect } from "next/navigation";
+import { Zap, Ticket, Package, Bookmark, User, Bell } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { createClient } from "@/lib/supabase/server";
+import { AttendeeLogoutButton } from "./logout-button";
 
 const navItems = [
   { href: "/my/tickets",  label: "My Tickets",  icon: Ticket },
@@ -9,7 +12,26 @@ const navItems = [
   { href: "/my/profile",  label: "Profile",     icon: User },
 ];
 
-export default function AttendeeLayout({ children }: { children: React.ReactNode }) {
+function getInitials(name: string | null): string {
+  if (!name) return "?";
+  return name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
+export default async function AttendeeLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, email, avatar_url")
+    .eq("id", user.id)
+    .single();
+
+  const displayName = profile?.full_name || "User";
+  const displayEmail = profile?.email || user.email || "";
+  const initials = getInitials(profile?.full_name ?? null);
+
   return (
     <div className="min-h-screen bg-neutral-50">
       {/* Top nav */}
@@ -25,7 +47,7 @@ export default function AttendeeLayout({ children }: { children: React.ReactNode
             <Bell className="w-4 h-4" />
           </button>
           <Avatar className="w-8 h-8 cursor-pointer">
-            <AvatarFallback className="bg-primary-100 text-primary-700 text-xs font-bold">AH</AvatarFallback>
+            <AvatarFallback className="bg-primary-100 text-primary-700 text-xs font-bold">{initials}</AvatarFallback>
           </Avatar>
         </div>
       </header>
@@ -36,11 +58,11 @@ export default function AttendeeLayout({ children }: { children: React.ReactNode
           <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-3 sticky top-24">
             <div className="flex items-center gap-3 p-3 mb-2">
               <Avatar className="w-10 h-10">
-                <AvatarFallback className="bg-primary-100 text-primary-700 font-bold">AH</AvatarFallback>
+                <AvatarFallback className="bg-primary-100 text-primary-700 font-bold">{initials}</AvatarFallback>
               </Avatar>
               <div>
-                <p className="font-semibold text-neutral-900 text-sm">Ahmad Hafiz</p>
-                <p className="text-xs text-neutral-400">ahmad@example.com</p>
+                <p className="font-semibold text-neutral-900 text-sm">{displayName}</p>
+                <p className="text-xs text-neutral-400">{displayEmail}</p>
               </div>
             </div>
             <nav className="space-y-0.5">
@@ -52,9 +74,7 @@ export default function AttendeeLayout({ children }: { children: React.ReactNode
               ))}
             </nav>
             <div className="mt-2 pt-2 border-t border-neutral-100">
-              <button className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-danger-500 hover:bg-danger-50 w-full transition-colors">
-                <LogOut className="w-4 h-4" />Log Out
-              </button>
+              <AttendeeLogoutButton />
             </div>
           </div>
         </aside>

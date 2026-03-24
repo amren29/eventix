@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Search, SlidersHorizontal, CalendarDays, MapPin, Ticket, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = {
+  title: "Discover Events",
+  description: "Find concerts, conferences, workshops, and more on Eventix.",
+};
 
 const CATEGORIES = ["All", "Conference", "Music", "Education", "Business", "Food", "Sports", "Arts", "Virtual"];
 

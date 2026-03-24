@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
@@ -8,6 +9,28 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { TicketWidget } from "./ticket-widget";
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const supabase = await createClient();
+  const { data: event } = await supabase
+    .from("events")
+    .select("title, description, category")
+    .eq("slug", slug)
+    .single();
+
+  if (!event) return { title: "Event Not Found" };
+
+  return {
+    title: event.title,
+    description: event.description?.slice(0, 160) || `${event.title} - Get tickets on Eventix`,
+    openGraph: {
+      title: event.title,
+      description: event.description?.slice(0, 160),
+      type: "website",
+    },
+  };
+}
 
 export default async function EventDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;

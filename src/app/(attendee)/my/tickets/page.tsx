@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/server";
+import QRCode from "qrcode";
 
 export default async function MyTicketsPage() {
   const supabase = await createClient();
@@ -69,8 +70,21 @@ export default async function MyTicketsPage() {
       venue,
       ticket: t.ticket_type?.name || "Ticket",
       status,
+      qr_code: t.qr_code || "",
     };
   });
+
+  // Generate QR code data URLs for all tickets
+  const qrCodeMap: Record<string, string> = {};
+  for (const ticket of allTickets) {
+    if (ticket.qr_code) {
+      try {
+        qrCodeMap[ticket.qr_code] = await QRCode.toDataURL(ticket.qr_code);
+      } catch {
+        // skip if QR generation fails
+      }
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -101,9 +115,13 @@ export default async function MyTicketsPage() {
         {allTickets.map((ticket, idx) => (
           <div key={`${ticket.id}-${idx}`} className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
             <div className="flex items-start gap-4 p-5">
-              {/* Icon */}
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center text-3xl flex-shrink-0">
-                <CalendarDays className="w-7 h-7 text-primary-500" />
+              {/* QR Code */}
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                {ticket.qr_code && qrCodeMap[ticket.qr_code] ? (
+                  <img src={qrCodeMap[ticket.qr_code]} alt="QR Code" className="w-16 h-16 rounded-2xl" />
+                ) : (
+                  <CalendarDays className="w-7 h-7 text-primary-500" />
+                )}
               </div>
 
               {/* Info */}
