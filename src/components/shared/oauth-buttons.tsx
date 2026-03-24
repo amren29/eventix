@@ -1,6 +1,6 @@
 "use client";
 
-import { signIn } from "next-auth/react";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
 function GoogleIcon() {
@@ -15,12 +15,22 @@ function GoogleIcon() {
 }
 
 export function OAuthButtons({ action }: { action: "login" | "register" }) {
+  async function handleGoogleAuth() {
+    const supabase = createClient();
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/api/auth/callback?next=/dashboard`,
+      },
+    });
+  }
+
   return (
     <Button
       variant="outline"
       className="w-full border-neutral-200 text-neutral-700 hover:bg-neutral-50 font-medium"
       type="button"
-      onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+      onClick={handleGoogleAuth}
     >
       <GoogleIcon />
       <span className="ml-2">

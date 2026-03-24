@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,33 +81,26 @@ export default function RegisterPage() {
     const email = formData.get("email") as string;
     const orgName = formData.get("org") as string;
 
-    // Register
-    const res = await fetch("/api/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ firstName, lastName, email, password, orgName }),
+    const supabase = createClient();
+    const { error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: `${firstName} ${lastName}`.trim(),
+          org_name: orgName,
+        },
+      },
     });
 
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error || "Registration failed");
+    if (authError) {
+      setError(authError.message);
       setLoading(false);
       return;
     }
 
-    // Auto sign-in after registration
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("Account created but sign-in failed. Please log in manually.");
-      setLoading(false);
-    } else {
-      router.push("/dashboard");
-    }
+    router.push("/dashboard");
+    router.refresh();
   }
 
   return (
