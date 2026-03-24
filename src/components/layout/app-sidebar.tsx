@@ -27,9 +27,10 @@ const navItems = [
 interface AppSidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  userData: { name: string; email: string; orgName: string; orgPlan: string };
 }
 
-export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
+export function AppSidebar({ collapsed, onToggle, userData }: AppSidebarProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
@@ -60,12 +61,14 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         <div className="px-3 py-3 border-b border-neutral-100">
           <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg bg-neutral-50">
             <Avatar className="w-7 h-7 flex-shrink-0">
-              <AvatarFallback className="bg-primary-100 text-primary-700 text-xs font-bold">BN</AvatarFallback>
+              <AvatarFallback className="bg-primary-100 text-primary-700 text-xs font-bold">
+                {(userData.orgName || "O").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+              </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-neutral-800 truncate">Bass Nation Events</p>
-              <Badge className="text-[10px] px-1.5 py-0 h-4 bg-primary-50 text-primary-700 border-primary-100 font-medium">
-                Pro Plan
+              <p className="text-xs font-semibold text-neutral-800 truncate">{userData.orgName || "My Organization"}</p>
+              <Badge className="text-[10px] px-1.5 py-0 h-4 bg-primary-50 text-primary-700 border-primary-100 font-medium capitalize">
+                {userData.orgPlan} Plan
               </Badge>
             </div>
           </div>

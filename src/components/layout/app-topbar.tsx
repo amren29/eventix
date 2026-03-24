@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Search, Bell, HelpCircle, ChevronDown, Plus, LogOut, User, Settings, CreditCard } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,15 @@ const notifications = [
   { id: 4, text: "2 new team member invites accepted", time: "Yesterday", unread: false },
 ];
 
-export function AppTopbar() {
+interface UserData {
+  name: string;
+  email: string;
+  orgName: string;
+  orgPlan: string;
+}
+
+export function AppTopbar({ userData }: { userData: UserData }) {
+  const router = useRouter();
   const [notifOpen, setNotifOpen] = useState(false);
   const unreadCount = notifications.filter((n) => n.unread).length;
 
@@ -104,17 +114,19 @@ export function AppTopbar() {
         <DropdownMenuTrigger asChild>
           <button className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-neutral-100 transition-colors">
             <Avatar className="w-7 h-7">
-              <AvatarFallback className="bg-primary-100 text-primary-700 text-xs font-bold">AR</AvatarFallback>
+              <AvatarFallback className="bg-primary-100 text-primary-700 text-xs font-bold">
+                {userData.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || "U"}
+              </AvatarFallback>
             </Avatar>
-            <span className="text-sm font-medium text-neutral-700 hidden md:block">Amir R.</span>
+            <span className="text-sm font-medium text-neutral-700 hidden md:block">{userData.name.split(" ")[0]}</span>
             <ChevronDown className="w-3.5 h-3.5 text-neutral-400 hidden md:block" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuLabel className="font-normal">
             <div>
-              <p className="font-semibold text-sm text-neutral-900">Amir Rashid</p>
-              <p className="text-xs text-neutral-500">amir@bassnation.com</p>
+              <p className="font-semibold text-sm text-neutral-900">{userData.name}</p>
+              <p className="text-xs text-neutral-500">{userData.email}</p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -134,7 +146,15 @@ export function AppTopbar() {
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-danger-600 focus:text-danger-600 focus:bg-danger-50">
+          <DropdownMenuItem
+            className="text-danger-600 focus:text-danger-600 focus:bg-danger-50"
+            onClick={async () => {
+              const supabase = createClient();
+              await supabase.auth.signOut();
+              router.push("/login");
+              router.refresh();
+            }}
+          >
             <LogOut className="w-3.5 h-3.5 mr-2" /> Log out
           </DropdownMenuItem>
         </DropdownMenuContent>

@@ -1,21 +1,26 @@
-"use client";
+import { createClient } from "@/lib/supabase/server";
+import { AppShellClient } from "./app-shell-client";
 
-import { useState } from "react";
-import { AppSidebar } from "./app-sidebar";
-import { AppTopbar } from "./app-topbar";
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-export function AppShell({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const { data: profile } = user
+    ? await supabase
+        .from("profiles")
+        .select("full_name, avatar_url, organization_id, organizations(name, slug, plan)")
+        .eq("id", user.id)
+        .single()
+    : { data: null };
 
-  return (
-    <div className="flex h-screen bg-neutral-50 overflow-hidden">
-      <AppSidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <AppTopbar />
-        <main className="flex-1 overflow-y-auto scrollbar-thin">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+  const userData = {
+    email: user?.email || "",
+    name: profile?.full_name || user?.email?.split("@")[0] || "",
+    avatarUrl: profile?.avatar_url || "",
+    orgName: (profile as any)?.organizations?.name || "",
+    orgSlug: (profile as any)?.organizations?.slug || "",
+    orgPlan: (profile as any)?.organizations?.plan || "free",
+  };
+
+  return <AppShellClient userData={userData}>{children}</AppShellClient>;
 }

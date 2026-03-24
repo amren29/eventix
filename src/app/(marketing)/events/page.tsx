@@ -3,28 +3,38 @@ import { Search, SlidersHorizontal, CalendarDays, MapPin, Ticket, ChevronDown } 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-
-const EVENTS = [
-  { slug:"tech-summit-kl-2026",  title:"Tech Summit KL 2026",         date:"Sat, Mar 15, 2026",  venue:"Axiata Arena, KL",           category:"Conference", price:"From $25", image:"🏢", tag:"Selling Fast" },
-  { slug:"bass-nation-festival",  title:"Bass Nation Festival",         date:"Fri, Apr 5, 2026",   venue:"Stadium Merdeka, KL",         category:"Music",      price:"From $35", image:"🎵", tag:"" },
-  { slug:"design-workshop-q1",    title:"Design Thinking Workshop",     date:"Sun, Mar 22, 2026",  venue:"Online (Zoom)",               category:"Education",  price:"$30",      image:"🎨", tag:"" },
-  { slug:"startup-weekend-kl",    title:"Startup Weekend KL",           date:"Fri, May 2, 2026",   venue:"Common Ground, KL",           category:"Business",   price:"$49",      image:"🚀", tag:"Limited" },
-  { slug:"kl-food-fest-2026",     title:"KL Food Festival 2026",        date:"Sat, Apr 19, 2026",  venue:"KLCC Park, KL",               category:"Food",       price:"Free",     image:"🍽️", tag:"Free" },
-  { slug:"dev-meetup-march",      title:"Dev Meetup · March Edition",   date:"Thu, Mar 20, 2026",  venue:"TechSpace, Bangsar",          category:"Conference", price:"Free",     image:"💻", tag:"Free" },
-  { slug:"yoga-wellness-day",     title:"Sunrise Yoga & Wellness Day",  date:"Sun, Apr 6, 2026",   venue:"KLCC Park, KL",               category:"Sports",     price:"$15",      image:"🧘", tag:"" },
-  { slug:"art-expo-2026",         title:"KL Art Expo 2026",             date:"Fri, May 9, 2026",   venue:"Galeri Petronas, KL",         category:"Arts",       price:"From $20", image:"🖼️", tag:"New" },
-];
+import { createClient } from "@/lib/supabase/server";
 
 const CATEGORIES = ["All", "Conference", "Music", "Education", "Business", "Food", "Sports", "Arts", "Virtual"];
 
-const tagStyle: Record<string, string> = {
-  "Selling Fast": "bg-danger-50 text-danger-600 border-danger-100",
-  "Limited":      "bg-warning-50 text-warning-700 border-warning-100",
-  "Free":         "bg-success-50 text-success-700 border-success-100",
-  "New":          "bg-primary-50 text-primary-700 border-primary-100",
-};
+export default async function EventsDiscoveryPage() {
+  const supabase = await createClient();
 
-export default function EventsDiscoveryPage() {
+  const { data: dbEvents } = await supabase
+    .from("events")
+    .select("slug, title, start_date, category, is_online, venue_name, venue_city, ticket_types(price, price_type, quantity, quantity_sold)")
+    .eq("status", "published")
+    .eq("visibility", "public")
+    .order("start_date", { ascending: true })
+    .limit(24);
+
+  const events = (dbEvents || []).map((e: any) => {
+    const tickets = e.ticket_types || [];
+    const minPrice = tickets.length > 0
+      ? Math.min(...tickets.map((t: any) => t.price_type === "free" ? 0 : t.price))
+      : 0;
+    const hasAvailability = tickets.some((t: any) => !t.quantity || t.quantity_sold < t.quantity);
+    return {
+      slug: e.slug,
+      title: e.title,
+      date: new Date(e.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }),
+      venue: e.is_online ? "Online" : [e.venue_name, e.venue_city].filter(Boolean).join(", ") || "TBA",
+      category: e.category,
+      price: minPrice === 0 ? "Free" : `From $${(minPrice / 100).toFixed(0)}`,
+      tag: !hasAvailability ? "Sold Out" : "",
+    };
+  });
+
   return (
     <div className="min-h-screen bg-neutral-50">
       {/* Hero search bar */}
@@ -76,18 +86,6 @@ export default function EventsDiscoveryPage() {
                 </div>
               </div>
 
-              <div className="pt-1">
-                <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Price</p>
-                <div className="space-y-1">
-                  {["Free", "Paid", "Under $25", "$25–$100", "$100+"].map((p) => (
-                    <label key={p} className="flex items-center gap-2.5 py-1 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 rounded border-neutral-300 accent-primary-600" />
-                      <span className="text-sm text-neutral-600 group-hover:text-neutral-900">{p}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
               <Button variant="ghost" size="sm" className="w-full text-xs text-neutral-400 h-8">
                 Clear all filters
               </Button>
@@ -96,9 +94,8 @@ export default function EventsDiscoveryPage() {
 
           {/* Main content */}
           <main className="flex-1 min-w-0">
-            {/* Sort bar */}
             <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-              <p className="text-sm text-neutral-500"><strong className="text-neutral-900">{EVENTS.length} events</strong> found</p>
+              <p className="text-sm text-neutral-500"><strong className="text-neutral-900">{events.length} events</strong> found</p>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" className="h-8 border-neutral-200 text-xs">
                   <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5" />Filters
@@ -109,46 +106,51 @@ export default function EventsDiscoveryPage() {
               </div>
             </div>
 
-            {/* Event grid */}
-            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {EVENTS.map((event) => (
-                <Link key={event.slug} href={`/e/${event.slug}`} className="group bg-white rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md hover:border-primary-200 transition-all overflow-hidden block">
-                  {/* Banner */}
-                  <div className="h-40 bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center relative">
-                    <span className="text-6xl">{event.image}</span>
-                    {event.tag && (
-                      <div className="absolute top-3 left-3">
-                        <Badge className={`text-[10px] px-2 h-5 border ${tagStyle[event.tag] ?? ""}`}>{event.tag}</Badge>
+            {events.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
+                <CalendarDays className="w-12 h-12 text-neutral-200 mx-auto mb-4" />
+                <h3 className="font-semibold text-neutral-700 mb-1">No events yet</h3>
+                <p className="text-sm text-neutral-400">Check back soon for upcoming events.</p>
+              </div>
+            ) : (
+              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {events.map((event) => (
+                  <Link key={event.slug} href={`/e/${event.slug}`} className="group bg-white rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md hover:border-primary-200 transition-all overflow-hidden block">
+                    <div className="h-40 bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center relative">
+                      <CalendarDays className="w-12 h-12 text-primary-200" />
+                      {event.tag && (
+                        <div className="absolute top-3 left-3">
+                          <Badge className="text-[10px] px-2 h-5 border bg-danger-50 text-danger-600 border-danger-100">{event.tag}</Badge>
+                        </div>
+                      )}
+                      <div className="absolute top-3 right-3">
+                        <Badge variant="outline" className="text-[10px] px-2 h-5 bg-white/90 border-neutral-200 text-neutral-600">{event.category}</Badge>
                       </div>
-                    )}
-                    <div className="absolute top-3 right-3">
-                      <Badge variant="outline" className="text-[10px] px-2 h-5 bg-white/90 border-neutral-200 text-neutral-600">{event.category}</Badge>
                     </div>
-                  </div>
 
-                  {/* Info */}
-                  <div className="p-4">
-                    <h3 className="font-semibold text-neutral-900 text-sm mb-2 group-hover:text-primary-700 transition-colors line-clamp-2">{event.title}</h3>
-                    <div className="space-y-1 mb-3">
-                      <p className="flex items-center gap-1.5 text-xs text-neutral-500">
-                        <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />{event.date}
-                      </p>
-                      <p className="flex items-center gap-1.5 text-xs text-neutral-500">
-                        <MapPin className="w-3.5 h-3.5 flex-shrink-0" />{event.venue}
-                      </p>
+                    <div className="p-4">
+                      <h3 className="font-semibold text-neutral-900 text-sm mb-2 group-hover:text-primary-700 transition-colors line-clamp-2">{event.title}</h3>
+                      <div className="space-y-1 mb-3">
+                        <p className="flex items-center gap-1.5 text-xs text-neutral-500">
+                          <CalendarDays className="w-3.5 h-3.5 flex-shrink-0" />{event.date}
+                        </p>
+                        <p className="flex items-center gap-1.5 text-xs text-neutral-500">
+                          <MapPin className="w-3.5 h-3.5 flex-shrink-0" />{event.venue}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1 text-sm font-bold text-primary-600">
+                          <Ticket className="w-3.5 h-3.5" />{event.price}
+                        </span>
+                        <span className="text-xs font-semibold text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                          Get Tickets →
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1 text-sm font-bold text-primary-600">
-                        <Ticket className="w-3.5 h-3.5" />{event.price}
-                      </span>
-                      <span className="text-xs font-semibold text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                        Get Tickets →
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </main>
         </div>
       </div>

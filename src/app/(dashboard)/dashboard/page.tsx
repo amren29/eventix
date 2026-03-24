@@ -8,20 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { StatCard } from "@/components/shared/stat-card";
 import { RevenueChart } from "@/components/shared/revenue-chart";
-
-const recentOrders = [
-  { id: "EVT-00842", buyer: "John Doe",   email: "john@example.com",  event: "Tech Summit KL",   ticket: "VIP Package",    amount: "$89.00", status: "paid",     time: "2m ago" },
-  { id: "EVT-00841", buyer: "Sara Kwan",  email: "sara@example.com",  event: "Tech Summit KL",   ticket: "General × 2",   amount: "$50.00", status: "paid",     time: "18m ago" },
-  { id: "EVT-00840", buyer: "Amir Zul",   email: "amir@example.com",  event: "Bass Nation Fest", ticket: "General",        amount: "$35.00", status: "paid",     time: "1h ago" },
-  { id: "EVT-00839", buyer: "Priya N.",   email: "priya@example.com", event: "Tech Summit KL",   ticket: "Early Bird",     amount: "$18.00", status: "refunded", time: "2h ago" },
-  { id: "EVT-00838", buyer: "Daniel M.",  email: "dan@example.com",   event: "Bass Nation Fest", ticket: "VIP × 2",       amount: "$170.00", status: "paid",    time: "3h ago" },
-];
-
-const upcomingEvents = [
-  { id: "1", name: "Tech Summit KL 2026",  date: "Sat, Mar 15",  sold: 842,  total: 1000, revenue: "$12,450", status: "published" },
-  { id: "2", name: "Bass Nation Festival", date: "Fri, Apr 5",   sold: 234,  total: 500,  revenue: "$8,190",  status: "published" },
-  { id: "3", name: "Design Workshop #4",   date: "Sun, Mar 22",  sold: 12,   total: 40,   revenue: "$360",    status: "draft" },
-];
+import { createClient } from "@/lib/supabase/server";
 
 const statusStyles: Record<string, string> = {
   paid:     "bg-success-50 text-success-700 border-success-100",
@@ -29,13 +16,101 @@ const statusStyles: Record<string, string> = {
   pending:  "bg-warning-50 text-warning-700 border-warning-100",
 };
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Fetch profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name, organization_id")
+    .eq("id", user!.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+  const firstName = profile?.full_name?.split(" ")[0] || "there";
+
+  // Fetch upcoming events with ticket types
+  const { data: events } = orgId
+    ? await supabase
+        .from("events")
+        .select("id, title, slug, start_date, status, ticket_types(quantity, quantity_sold, price)")
+        .eq("organization_id", orgId)
+        .in("status", ["draft", "published"])
+        .order("start_date", { ascending: true })
+        .limit(5)
+    : { data: [] };
+
+  // Fetch recent orders for this org's events
+  const eventIds = (events || []).map((e: any) => e.id);
+  const { data: recentOrders } = eventIds.length > 0
+    ? await supabase
+        .from("orders")
+        .select("id, reference, buyer_name, buyer_email, total, currency, status, created_at, event_id")
+        .in("event_id", eventIds)
+        .order("created_at", { ascending: false })
+        .limit(5)
+    : { data: [] };
+
+  // Calculate stats
+  const { data: paidOrders } = eventIds.length > 0
+    ? await supabase
+        .from("orders")
+        .select("total")
+        .in("event_id", eventIds)
+        .eq("status", "paid")
+    : { data: [] };
+
+  const totalRevenue = (paidOrders || []).reduce((sum: number, o: any) => sum + o.total, 0);
+  const totalTicketsSold = (events || []).reduce((sum: number, e: any) => {
+    const tickets = e.ticket_types || [];
+    return sum + tickets.reduce((s: number, t: any) => s + (t.quantity_sold || 0), 0);
+  }, 0);
+  const upcomingCount = (events || []).length;
+
+  // Build event name map for orders
+  const eventMap = Object.fromEntries((events || []).map((e: any) => [e.id, e.title]));
+
+  // Format events for display
+  const upcomingEvents = (events || []).map((e: any) => {
+    const tickets = e.ticket_types || [];
+    const sold = tickets.reduce((s: number, t: any) => s + (t.quantity_sold || 0), 0);
+    const total = tickets.reduce((s: number, t: any) => s + (t.quantity || 0), 0);
+    const revenue = tickets.reduce((s: number, t: any) => s + (t.quantity_sold || 0) * (t.price || 0), 0);
+    return {
+      id: e.id,
+      name: e.title,
+      date: new Date(e.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
+      sold,
+      total: total || 1,
+      revenue: `$${(revenue / 100).toLocaleString()}`,
+      status: e.status,
+    };
+  });
+
+  // Format orders for display
+  const formattedOrders = (recentOrders || []).map((o: any) => {
+    const timeDiff = Date.now() - new Date(o.created_at).getTime();
+    const mins = Math.floor(timeDiff / 60000);
+    const time = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+    return {
+      id: o.reference,
+      buyer: o.buyer_name,
+      email: o.buyer_email,
+      event: eventMap[o.event_id] || "",
+      ticket: "Ticket",
+      amount: `$${(o.total / 100).toFixed(2)}`,
+      status: o.status,
+      time,
+    };
+  });
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Page header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-extrabold text-neutral-900">Good morning, Amir 👋</h1>
+          <h1 className="text-2xl font-extrabold text-neutral-900">Good morning, {firstName} 👋</h1>
           <p className="text-sm text-neutral-500 mt-0.5">Here&apos;s what&apos;s happening with your events today.</p>
         </div>
         <Button className="gradient-primary text-white border-0 shadow-sm hover:opacity-90" asChild>
@@ -50,23 +125,21 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Total Revenue"
-          value="$28,940"
-          trend={{ value: "+18%", direction: "up", label: "vs last month" }}
+          value={`$${(totalRevenue / 100).toLocaleString()}`}
           icon={DollarSign}
           iconBg="bg-primary-50"
           iconColor="text-primary-600"
         />
         <StatCard
           label="Tickets Sold"
-          value="1,088"
-          trend={{ value: "+24%", direction: "up", label: "vs last month" }}
+          value={totalTicketsSold.toLocaleString()}
           icon={Ticket}
           iconBg="bg-accent-50"
           iconColor="text-accent-600"
         />
         <StatCard
           label="Upcoming Events"
-          value="3"
+          value={String(upcomingCount)}
           icon={CalendarDays}
           iconBg="bg-warning-50"
           iconColor="text-warning-600"
@@ -87,14 +160,12 @@ export default function DashboardPage() {
           <RevenueChart />
         </div>
 
-        {/* Quick stats panel */}
         <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-5 space-y-4">
-          <h3 className="font-semibold text-neutral-900 text-sm">This Month</h3>
+          <h3 className="font-semibold text-neutral-900 text-sm">Overview</h3>
           {[
-            { label: "Top Event", value: "Tech Summit KL", sub: "$12,450 revenue" },
-            { label: "Conversion Rate", value: "4.2%", sub: "visits → purchases" },
-            { label: "Avg. Order Value", value: "$34.80", sub: "across all events" },
-            { label: "Promo Code Uses", value: "88", sub: "EARLYBIRD20 leading" },
+            { label: "Total Events", value: String(upcomingCount), sub: "active events" },
+            { label: "Total Revenue", value: `$${(totalRevenue / 100).toLocaleString()}`, sub: "all time" },
+            { label: "Total Tickets", value: String(totalTicketsSold), sub: "sold across events" },
           ].map(({ label, value, sub }) => (
             <div key={label} className="flex items-center justify-between py-2.5 border-b border-neutral-50 last:border-0">
               <div>
@@ -109,7 +180,6 @@ export default function DashboardPage() {
 
       {/* Recent orders + Upcoming events */}
       <div className="grid lg:grid-cols-5 gap-4">
-        {/* Recent orders */}
         <div className="lg:col-span-3 bg-white rounded-2xl border border-neutral-100 shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-50">
             <h3 className="font-semibold text-neutral-900 text-sm">Recent Orders</h3>
@@ -118,10 +188,12 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="divide-y divide-neutral-50">
-            {recentOrders.map((order) => (
+            {formattedOrders.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-neutral-400">No orders yet</div>
+            ) : formattedOrders.map((order) => (
               <div key={order.id} className="flex items-center gap-3 px-5 py-3 hover:bg-neutral-50/50 transition-colors">
                 <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-xs font-bold text-primary-700 flex-shrink-0">
-                  {order.buyer.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                  {order.buyer.split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
@@ -134,7 +206,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-sm font-bold text-neutral-900">{order.amount}</p>
-                  <Badge className={`text-[10px] px-1.5 py-0 h-4 border ${statusStyles[order.status]}`}>
+                  <Badge className={`text-[10px] px-1.5 py-0 h-4 border ${statusStyles[order.status] || ""}`}>
                     {order.status}
                   </Badge>
                 </div>
@@ -143,7 +215,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Upcoming events */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-neutral-100 shadow-sm">
           <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-50">
             <h3 className="font-semibold text-neutral-900 text-sm">Upcoming Events</h3>
@@ -152,7 +223,16 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="divide-y divide-neutral-50">
-            {upcomingEvents.map((event) => (
+            {upcomingEvents.length === 0 ? (
+              <div className="px-5 py-8 text-center">
+                <p className="text-sm text-neutral-400 mb-3">No events yet</p>
+                <Button size="sm" className="gradient-primary text-white border-0" asChild>
+                  <Link href="/dashboard/events/new">
+                    <Plus className="w-3.5 h-3.5 mr-1.5" />Create your first event
+                  </Link>
+                </Button>
+              </div>
+            ) : upcomingEvents.map((event) => (
               <div key={event.id} className="px-5 py-4 hover:bg-neutral-50/50 transition-colors">
                 <div className="flex items-start justify-between mb-2">
                   <div className="min-w-0">

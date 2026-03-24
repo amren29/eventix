@@ -13,64 +13,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-const events = [
-  {
-    id: "1",
-    name: "Tech Summit KL 2026",
-    banner: null,
-    date: "Sat, Mar 15, 2026 · 2:00 PM",
-    venue: "Axiata Arena, Kuala Lumpur",
-    status: "published",
-    sold: 842, total: 1000,
-    revenue: "$12,450",
-    category: "Conference",
-  },
-  {
-    id: "2",
-    name: "Bass Nation Festival",
-    banner: null,
-    date: "Fri, Apr 5, 2026 · 8:00 PM",
-    venue: "Stadium Merdeka, KL",
-    status: "published",
-    sold: 234, total: 500,
-    revenue: "$8,190",
-    category: "Music",
-  },
-  {
-    id: "3",
-    name: "Design Thinking Workshop #4",
-    banner: null,
-    date: "Sun, Mar 22, 2026 · 10:00 AM",
-    venue: "Online (Zoom)",
-    status: "draft",
-    sold: 0, total: 40,
-    revenue: "$0",
-    category: "Education",
-  },
-  {
-    id: "4",
-    name: "Startup Weekend KL",
-    banner: null,
-    date: "Fri, May 2, 2026 · 6:00 PM",
-    venue: "Common Ground, KL",
-    status: "published",
-    sold: 58, total: 120,
-    revenue: "$2,900",
-    category: "Business",
-  },
-  {
-    id: "5",
-    name: "DevSummit Malaysia 2025",
-    banner: null,
-    date: "Sat, Dec 7, 2025 · 9:00 AM",
-    venue: "Connexion, Bangsar South",
-    status: "past",
-    sold: 380, total: 380,
-    revenue: "$9,500",
-    category: "Conference",
-  },
-];
+import { createClient } from "@/lib/supabase/server";
 
 const statusStyle: Record<string, string> = {
   published: "bg-success-50 text-success-700 border-success-100",
@@ -79,7 +22,46 @@ const statusStyle: Record<string, string> = {
   cancelled: "bg-danger-50 text-danger-600 border-danger-100",
 };
 
-export default function EventsPage() {
+export default async function EventsPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("organization_id")
+    .eq("id", user!.id)
+    .single();
+
+  const orgId = profile?.organization_id;
+
+  const { data: dbEvents } = orgId
+    ? await supabase
+        .from("events")
+        .select("id, title, slug, start_date, status, category, is_online, venue_name, venue_city, ticket_types(quantity, quantity_sold, price)")
+        .eq("organization_id", orgId)
+        .order("start_date", { ascending: false })
+    : { data: [] };
+
+  const events = (dbEvents || []).map((e: any) => {
+    const tickets = e.ticket_types || [];
+    const sold = tickets.reduce((s: number, t: any) => s + (t.quantity_sold || 0), 0);
+    const total = tickets.reduce((s: number, t: any) => s + (t.quantity || 0), 0);
+    const revenue = tickets.reduce((s: number, t: any) => s + (t.quantity_sold || 0) * (t.price || 0), 0);
+    return {
+      id: e.id,
+      name: e.title,
+      slug: e.slug,
+      date: new Date(e.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) +
+            " · " + new Date(e.start_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+      venue: e.is_online ? "Online" : [e.venue_name, e.venue_city].filter(Boolean).join(", ") || "TBA",
+      status: e.status,
+      sold,
+      total: total || 0,
+      revenue: `$${(revenue / 100).toLocaleString()}`,
+      category: e.category,
+    };
+  });
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-5">
       {/* Header */}
@@ -120,15 +102,24 @@ export default function EventsPage() {
 
       {/* Event list */}
       <div className="space-y-3">
-        {events.map((event) => (
+        {events.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
+            <CalendarDays className="w-12 h-12 text-neutral-200 mx-auto mb-4" />
+            <h3 className="font-semibold text-neutral-700 mb-1">No events yet</h3>
+            <p className="text-sm text-neutral-400 mb-4">Create your first event to start selling tickets.</p>
+            <Button className="gradient-primary text-white border-0" asChild>
+              <Link href="/dashboard/events/new">
+                <Plus className="w-4 h-4 mr-2" />Create Event
+              </Link>
+            </Button>
+          </div>
+        ) : events.map((event) => (
           <div key={event.id} className="bg-white rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start gap-4 p-5">
-              {/* Thumbnail */}
               <div className="w-20 h-16 rounded-xl bg-gradient-to-br from-primary-100 to-accent-100 flex-shrink-0 flex items-center justify-center">
                 <CalendarDays className="w-6 h-6 text-primary-400" />
               </div>
 
-              {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
                   <h3 className="font-semibold text-neutral-900 text-sm">{event.name}</h3>
@@ -151,19 +142,19 @@ export default function EventsPage() {
                   </span>
                 </div>
 
-                {/* Progress bar */}
-                <div className="flex items-center gap-3 max-w-xs">
-                  <Progress
-                    value={(event.sold / event.total) * 100}
-                    className="h-1.5 flex-1 bg-neutral-100 [&>div]:gradient-primary"
-                  />
-                  <span className="text-[11px] text-neutral-400 flex-shrink-0 w-8 text-right">
-                    {Math.round((event.sold / event.total) * 100)}%
-                  </span>
-                </div>
+                {event.total > 0 && (
+                  <div className="flex items-center gap-3 max-w-xs">
+                    <Progress
+                      value={(event.sold / event.total) * 100}
+                      className="h-1.5 flex-1 bg-neutral-100 [&>div]:gradient-primary"
+                    />
+                    <span className="text-[11px] text-neutral-400 flex-shrink-0 w-8 text-right">
+                      {Math.round((event.sold / event.total) * 100)}%
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Actions */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <Button variant="outline" size="sm" className="h-8 text-xs border-neutral-200" asChild>
                   <Link href={`/dashboard/events/${event.id}`}>
@@ -172,7 +163,7 @@ export default function EventsPage() {
                 </Button>
                 {event.status === "published" && (
                   <Button size="sm" className="h-8 text-xs bg-success-500 hover:bg-success-600 text-white border-0" asChild>
-                    <Link href={`/dashboard/events/${event.id}/check-in`}>
+                    <Link href={`/checkin/${event.id}/scan`}>
                       <ScanLine className="w-3.5 h-3.5 mr-1.5" />Check-In
                     </Link>
                   </Button>
@@ -185,7 +176,7 @@ export default function EventsPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuItem asChild>
-                      <Link href={`/e/${event.id}`} className="flex items-center gap-2">
+                      <Link href={`/e/${event.slug}`} className="flex items-center gap-2">
                         <Eye className="w-3.5 h-3.5" />View public page
                       </Link>
                     </DropdownMenuItem>
