@@ -37,7 +37,7 @@ export default async function EventsPage() {
   const { data: dbEvents } = orgId
     ? await supabase
         .from("events")
-        .select("id, title, slug, start_date, status, category, is_online, venue_name, venue_city, ticket_types(quantity, quantity_sold, price)")
+        .select("id, title, slug, banner_url, start_date, status, category, is_online, venue_name, venue_city, ticket_types(quantity, quantity_sold, price)")
         .eq("organization_id", orgId)
         .order("start_date", { ascending: false })
     : { data: [] };
@@ -51,6 +51,7 @@ export default async function EventsPage() {
       id: e.id,
       name: e.title,
       slug: e.slug,
+      bannerUrl: e.banner_url || null,
       date: new Date(e.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) +
             " · " + new Date(e.start_date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
       venue: e.is_online ? "Online" : [e.venue_name, e.venue_city].filter(Boolean).join(", ") || "TBA",
@@ -116,8 +117,12 @@ export default async function EventsPage() {
         ) : events.map((event) => (
           <div key={event.id} className="bg-white rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex items-start gap-4 p-5">
-              <div className="w-20 h-16 rounded-xl bg-gradient-to-br from-primary-100 to-accent-100 flex-shrink-0 flex items-center justify-center">
-                <CalendarDays className="w-6 h-6 text-primary-400" />
+              <div className="w-20 h-16 rounded-xl bg-gradient-to-br from-primary-100 to-accent-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                {event.bannerUrl ? (
+                  <img src={event.bannerUrl} alt={event.name} className="w-full h-full object-cover" />
+                ) : (
+                  <CalendarDays className="w-6 h-6 text-primary-400" />
+                )}
               </div>
 
               <div className="flex-1 min-w-0">

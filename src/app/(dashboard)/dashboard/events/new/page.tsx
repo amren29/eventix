@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { BannerUpload } from "@/components/shared/banner-upload";
 
 const STEPS = [
   { id: 1, label: "Basic Info" },
@@ -44,6 +45,7 @@ interface TicketDraft {
 
 interface EventDraft {
   title: string;
+  bannerUrl: string | null;
   category: string;
   tags: string;
   description: string;
@@ -105,12 +107,7 @@ function StepBasicInfo({ draft, setDraft }: { draft: EventDraft; setDraft: (d: E
 
       <div className="space-y-1.5">
         <Label className="text-sm font-medium text-neutral-700">Event Banner</Label>
-        <div className="border-2 border-dashed border-neutral-200 rounded-2xl p-10 text-center hover:border-primary-300 hover:bg-primary-50/20 transition-colors cursor-pointer group">
-          <Upload className="w-8 h-8 text-neutral-300 mx-auto mb-3 group-hover:text-primary-400 transition-colors" />
-          <p className="text-sm font-medium text-neutral-500">Drag & drop your banner here</p>
-          <p className="text-xs text-neutral-400 mt-1">or <span className="text-primary-600 font-medium">click to browse</span></p>
-          <p className="text-xs text-neutral-300 mt-2">Recommended: 1920×1080px · Max 5MB</p>
-        </div>
+        <BannerUpload value={draft.bannerUrl} onChange={(url) => setDraft({ ...draft, bannerUrl: url })} />
       </div>
 
       <div className="space-y-1.5">
@@ -468,6 +465,7 @@ export default function NewEventPage() {
 
   const [draft, setDraft] = useState<EventDraft>({
     title: "",
+    bannerUrl: null,
     category: "",
     tags: "",
     description: "",
@@ -531,6 +529,7 @@ export default function NewEventPage() {
           venue_address: draft.isOnline ? null : draft.venueAddress || null,
           venue_city: draft.isOnline ? null : draft.venueCity || null,
           venue_country: draft.isOnline ? null : draft.venueCountry || null,
+          banner_url: draft.bannerUrl,
           organizer_id: user.id,
           organization_id: profile.organization_id,
         })

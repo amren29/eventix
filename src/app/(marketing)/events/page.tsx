@@ -18,7 +18,7 @@ export default async function EventsDiscoveryPage() {
 
   const { data: dbEvents } = await supabase
     .from("events")
-    .select("slug, title, start_date, category, is_online, venue_name, venue_city, ticket_types(price, price_type, quantity, quantity_sold)")
+    .select("slug, title, banner_url, start_date, category, is_online, venue_name, venue_city, ticket_types(price, price_type, quantity, quantity_sold)")
     .eq("status", "published")
     .eq("visibility", "public")
     .order("start_date", { ascending: true })
@@ -33,6 +33,7 @@ export default async function EventsDiscoveryPage() {
     return {
       slug: e.slug,
       title: e.title,
+      bannerUrl: e.banner_url || null,
       date: new Date(e.start_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }),
       venue: e.is_online ? "Online" : [e.venue_name, e.venue_city].filter(Boolean).join(", ") || "TBA",
       category: e.category,
@@ -122,8 +123,12 @@ export default async function EventsDiscoveryPage() {
               <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
                 {events.map((event) => (
                   <Link key={event.slug} href={`/e/${event.slug}`} className="group bg-white rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md hover:border-primary-200 transition-all overflow-hidden block">
-                    <div className="h-40 bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center relative">
-                      <CalendarDays className="w-12 h-12 text-primary-200" />
+                    <div className="h-40 bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center relative overflow-hidden">
+                      {event.bannerUrl ? (
+                        <img src={event.bannerUrl} alt={event.title} className="absolute inset-0 w-full h-full object-cover" />
+                      ) : (
+                        <CalendarDays className="w-12 h-12 text-primary-200" />
+                      )}
                       {event.tag && (
                         <div className="absolute top-3 left-3">
                           <Badge className="text-[10px] px-2 h-5 border bg-danger-50 text-danger-600 border-danger-100">{event.tag}</Badge>

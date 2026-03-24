@@ -67,9 +67,17 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
     <div className="min-h-screen bg-neutral-50">
       {/* Banner */}
       <div className="h-64 sm:h-80 bg-gradient-to-br from-primary-600 via-accent-600 to-primary-800 relative">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <CalendarDays className="w-24 h-24 text-white/20" />
-        </div>
+        {event.banner_url ? (
+          <img
+            src={event.banner_url}
+            alt={event.title}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <CalendarDays className="w-24 h-24 text-white/20" />
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-6">
           <div className="max-w-7xl mx-auto">

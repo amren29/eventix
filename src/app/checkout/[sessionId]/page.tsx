@@ -274,6 +274,13 @@ function StepPayment({ onNext, tickets, event, buyerName, buyerEmail }: {
         return;
       }
 
+      // Send confirmation emails (fire and forget - don't block checkout)
+      fetch("/api/send-order-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      }).catch(() => {});
+
       const startDate = new Date(event.start_date);
       const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
       const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
