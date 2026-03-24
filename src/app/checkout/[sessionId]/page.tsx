@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ChevronLeft, Check, Shield, CreditCard, Loader2, Eye, EyeOff, Lock } from "lucide-react";
+import { ChevronLeft, Check, Shield, Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -194,177 +194,142 @@ function StepPayment({ onNext, tickets, event, buyerName, buyerEmail }: {
   buyerName: string;
   buyerEmail: string;
 }) {
-  const [method, setMethod] = useState("card");
-  const [showCVV, setShowCVV] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const subtotal = tickets.reduce((s, t) => s + t.price * t.qty, 0);
   const serviceFee = Math.round(subtotal * 0.1);
   const total = subtotal + serviceFee;
+  const isFree = tickets.every((t) => t.price === 0);
 
-  async function pay() {
+  async function handlePayment() {
     setLoading(true);
+    setError("");
+
     try {
-      const supabase = createClient();
+      if (isFree) {
+        // Free tickets: create order directly
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setError("Please sign in."); setLoading(false); return; }
 
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        alert("Please sign in to complete your purchase.");
-        setLoading(false);
-        return;
-      }
+        const year = new Date().getFullYear();
+        const random5 = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
+        const reference = `EVT-${year}-${random5}`;
 
-      // Generate unique reference
-      const year = new Date().getFullYear();
-      const random5 = String(Math.floor(Math.random() * 100000)).padStart(5, "0");
-      const reference = `EVT-${year}-${random5}`;
+        const { data: order, error: orderError } = await supabase
+          .from("orders")
+          .insert({
+            reference, event_id: event.id, buyer_id: user.id,
+            buyer_name: buyerName, buyer_email: buyerEmail,
+            subtotal: 0, service_fee: 0, total: 0,
+            currency: "USD", status: "paid", discount: 0,
+          })
+          .select("id")
+          .single();
 
-      // Create order
-      const { data: order, error: orderError } = await supabase
-        .from("orders")
-        .insert({
-          reference,
-          event_id: event.id,
-          buyer_id: user.id,
-          buyer_name: buyerName,
-          buyer_email: buyerEmail,
-          subtotal,
-          service_fee: serviceFee,
-          total,
-          currency: "USD",
-          status: "paid",
-          promo_code: null,
-          discount: 0,
-        })
-        .select("id")
-        .single();
+        if (orderError || !order) throw new Error("Failed to create order");
 
-      if (orderError || !order) {
-        console.error("Order creation failed:", orderError);
-        alert("Failed to create order. Please try again.");
-        setLoading(false);
-        return;
-      }
+        const orderTickets: any[] = [];
+        let idx = 0;
+        for (const t of tickets) {
+          for (let i = 0; i < t.qty; i++) {
+            orderTickets.push({
+              order_id: order.id, ticket_type_id: t.id,
+              attendee_name: buyerName, attendee_email: buyerEmail,
+              qr_code: `qr-${order.id}-${idx++}`,
+            });
+          }
+        }
+        await supabase.from("order_tickets").insert(orderTickets);
 
-      // Create order_tickets
-      const orderTickets: { order_id: string; ticket_type_id: string; attendee_name: string; attendee_email: string; qr_code: string }[] = [];
-      let ticketIndex = 0;
-      for (const ticket of tickets) {
-        for (let i = 0; i < ticket.qty; i++) {
-          orderTickets.push({
-            order_id: order.id,
-            ticket_type_id: ticket.id,
-            attendee_name: buyerName,
-            attendee_email: buyerEmail,
-            qr_code: `qr-${order.id}-${ticketIndex}`,
-          });
-          ticketIndex++;
+        fetch("/api/send-order-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: order.id }),
+        }).catch(() => {});
+
+        const startDate = new Date(event.start_date);
+        onNext({
+          reference, buyerEmail, eventTitle: event.title,
+          eventDate: `${startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })} · ${startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+          eventVenue: event.is_online ? "Online Event" : [event.venue_name, event.venue_city].filter(Boolean).join(", "),
+        });
+      } else {
+        // Paid tickets: redirect to Stripe Checkout
+        const res = await fetch("/api/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId: event.id,
+            tickets: tickets.map((t) => ({ id: t.id, name: t.name, qty: t.qty, price: t.price })),
+            buyerName,
+            buyerEmail,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (data.url) {
+          window.location.href = data.url; // Redirect to Stripe
+        } else if (data.free) {
+          // Edge case: server determined all free
+          handlePayment(); // Retry as free
+        } else {
+          throw new Error(data.error || "Failed to start checkout");
         }
       }
-
-      const { error: ticketsError } = await supabase
-        .from("order_tickets")
-        .insert(orderTickets);
-
-      if (ticketsError) {
-        console.error("Tickets creation failed:", ticketsError);
-        alert("Failed to create tickets. Please try again.");
-        setLoading(false);
-        return;
-      }
-
-      // Send confirmation emails (fire and forget - don't block checkout)
-      fetch("/api/send-order-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: order.id }),
-      }).catch(() => {});
-
-      const startDate = new Date(event.start_date);
-      const dateStr = startDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-      const timeStr = startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-      const venue = event.is_online ? "Online Event" : [event.venue_name, event.venue_city].filter(Boolean).join(", ");
-
-      onNext({
-        reference,
-        buyerEmail,
-        eventTitle: event.title,
-        eventDate: `${dateStr} · ${timeStr}`,
-        eventVenue: venue,
-      });
-    } catch (err) {
-      console.error("Payment error:", err);
-      alert("An unexpected error occurred. Please try again.");
+    } catch (err: any) {
+      setError(err.message || "Something went wrong");
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
     <div className="space-y-5">
-      <h2 className="font-bold text-neutral-900 text-lg">Payment Method</h2>
+      <h2 className="font-bold text-neutral-900 text-lg">
+        {isFree ? "Confirm Registration" : "Payment"}
+      </h2>
 
-      {/* Method selector */}
-      <div className="flex gap-3">
-        {[
-          { id: "card",   label: "Card" },
-          { id: "paypal", label: "PayPal" },
-          { id: "fpx",    label: "FPX" },
-        ].map(({ id, label }) => (
-          <button key={id} onClick={() => setMethod(id)}
-            className={cn(
-              "flex-1 py-3 rounded-xl border text-sm font-medium transition-all",
-              method === id ? "border-primary-500 bg-primary-50 text-primary-700" : "border-neutral-200 text-neutral-600 hover:border-neutral-300"
-            )}>{label}</button>
+      {/* Order review */}
+      <div className="bg-neutral-50 rounded-2xl border border-neutral-100 p-5 space-y-3">
+        <p className="text-sm font-semibold text-neutral-700">Order Review</p>
+        {tickets.map((t) => (
+          <div key={t.id} className="flex justify-between text-sm">
+            <span className="text-neutral-600">{t.name} × {t.qty}</span>
+            <span className="font-medium text-neutral-900">
+              {t.price === 0 ? "Free" : `$${((t.price * t.qty) / 100).toFixed(2)}`}
+            </span>
+          </div>
         ))}
+        {!isFree && (
+          <>
+            <div className="flex justify-between text-sm text-neutral-500">
+              <span>Service fee</span>
+              <span>${(serviceFee / 100).toFixed(2)}</span>
+            </div>
+            <Separator />
+            <div className="flex justify-between font-bold text-neutral-900">
+              <span>Total</span>
+              <span>${(total / 100).toFixed(2)}</span>
+            </div>
+          </>
+        )}
       </div>
 
-      {method === "card" && (
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium text-neutral-700">Card Number</Label>
-            <div className="relative">
-              <Input placeholder="1234 5678 9012 3456" className="h-11 border-neutral-200 pr-10" />
-              <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium text-neutral-700">Expiry Date</Label>
-              <Input placeholder="MM / YY" className="h-11 border-neutral-200" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-sm font-medium text-neutral-700">CVV</Label>
-              <div className="relative">
-                <Input type={showCVV ? "text" : "password"} placeholder="..." className="h-11 border-neutral-200 pr-10" />
-                <button type="button" onClick={() => setShowCVV(!showCVV)} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400">
-                  {showCVV ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium text-neutral-700">Cardholder Name</Label>
-            <Input placeholder="Name as on card" className="h-11 border-neutral-200" />
+      {!isFree && (
+        <div className="flex items-center gap-3 p-4 bg-primary-50 border border-primary-100 rounded-xl">
+          <Shield className="w-5 h-5 text-primary-600 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-primary-700">Secure payment via Stripe</p>
+            <p className="text-xs text-primary-600/70">You&apos;ll be redirected to Stripe&apos;s secure checkout page.</p>
           </div>
         </div>
       )}
 
-      {method === "paypal" && (
-        <div className="p-6 bg-[#f5f5f5] rounded-2xl text-center border border-neutral-200">
-          <p className="text-sm text-neutral-600 mb-4">You&apos;ll be redirected to PayPal to complete your payment securely.</p>
-          <div className="text-3xl font-bold text-[#003087]">Pay<span className="text-[#009cde]">Pal</span></div>
-        </div>
-      )}
-
-      {method === "fpx" && (
-        <div className="p-4 bg-neutral-50 rounded-2xl border border-neutral-100">
-          <p className="text-sm font-medium text-neutral-700 mb-3">Select your bank</p>
-          <div className="grid grid-cols-3 gap-2">
-            {["Maybank", "CIMB", "Public Bank", "RHB", "Hong Leong", "AmBank"].map((bank) => (
-              <button key={bank} className="py-2 px-3 bg-white border border-neutral-200 rounded-xl text-xs font-medium text-neutral-600 hover:border-primary-400 hover:text-primary-700 transition-all">{bank}</button>
-            ))}
-          </div>
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+          {error}
         </div>
       )}
 
@@ -373,11 +338,15 @@ function StepPayment({ onNext, tickets, event, buyerName, buyerEmail }: {
         <Link href="/terms" className="underline hover:text-neutral-600">Terms</Link>.
       </p>
 
-      <Button onClick={pay} disabled={loading} className="w-full h-12 gradient-primary text-white border-0 font-semibold text-base shadow-sm hover:opacity-90">
+      <Button
+        onClick={handlePayment}
+        disabled={loading}
+        className="w-full h-12 gradient-primary text-white border-0 font-semibold text-base shadow-sm hover:opacity-90"
+      >
         {loading ? (
-          <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</>
+          <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{isFree ? "Processing..." : "Redirecting to Stripe..."}</>
         ) : (
-          <><Lock className="w-4 h-4 mr-2" />Pay ${(total / 100).toFixed(2)}</>
+          <><Lock className="w-4 h-4 mr-2" />{isFree ? "Confirm Free Registration" : `Pay $${(total / 100).toFixed(2)}`}</>
         )}
       </Button>
     </div>
