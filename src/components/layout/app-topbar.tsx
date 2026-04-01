@@ -18,12 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import Link from "next/link";
 
-const notifications = [
-  { id: 1, text: "New order — John D. purchased 2× VIP", time: "2 min ago", unread: true },
-  { id: 2, text: "Payout of $5,100 scheduled for Mar 20", time: "1 hr ago", unread: true },
-  { id: 3, text: "Tech Summit is 80% sold out!", time: "3 hr ago", unread: false },
-  { id: 4, text: "2 new team member invites accepted", time: "Yesterday", unread: false },
-];
+const notifications: { id: number; text: string; time: string; unread: boolean }[] = [];
 
 interface UserData {
   name: string;
@@ -87,7 +82,9 @@ export function AppTopbar({ userData }: { userData: UserData }) {
             )}
           </div>
           <div className="divide-y divide-neutral-50">
-            {notifications.map((n) => (
+            {notifications.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-neutral-400">No notifications yet</div>
+            ) : notifications.map((n) => (
               <div key={n.id} className={`px-4 py-3 hover:bg-neutral-50 cursor-pointer transition-colors ${n.unread ? "bg-primary-50/30" : ""}`}>
                 <p className={`text-sm leading-snug ${n.unread ? "font-medium text-neutral-800" : "text-neutral-600"}`}>
                   {n.text}
