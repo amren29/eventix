@@ -4,6 +4,10 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
+    if (!stripe) {
+      return NextResponse.json({ error: "Stripe is not configured" }, { status: 503 });
+    }
+
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {

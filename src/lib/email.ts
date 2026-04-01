@@ -1,6 +1,6 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const FROM_EMAIL = "Eventix <onboarding@resend.dev>"; // Use resend.dev for testing
 
@@ -28,6 +28,7 @@ export async function sendOrderConfirmation({
     .join("\n    ");
 
   try {
+    if (!resend) return;
     await resend.emails.send({
       from: FROM_EMAIL,
       to,
@@ -90,6 +91,7 @@ export async function sendTicketEmail({
   qrCode: string;
 }) {
   try {
+    if (!resend) return;
     await resend.emails.send({
       from: FROM_EMAIL,
       to,
