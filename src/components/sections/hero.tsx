@@ -41,10 +41,6 @@ export function Hero() {
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           {/* Left — Copy */}
           <div>
-            <Badge className="mb-6 bg-primary-50 text-primary-700 border-primary-200 hover:bg-primary-50">
-              🎉 Trusted by 5,000+ organizers worldwide
-            </Badge>
-
             <h1 className="text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-[1.05] tracking-tight mb-6">
               <span className="text-neutral-900">Sell Tickets.</span>
               <br />

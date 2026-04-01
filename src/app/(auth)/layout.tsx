@@ -30,24 +30,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               <br />
               starts here.
             </h2>
-            <p className="text-neutral-400 leading-relaxed mb-8">
-              Join 5,000+ organizers who use Eventix to create, sell, and manage
-              unforgettable events.
+            <p className="text-neutral-400 leading-relaxed">
+              Create, sell, and manage unforgettable events — all in one place.
             </p>
-
-            {/* Social proof mini cards */}
-            <div className="space-y-3">
-              {[
-                { emoji: "🎵", text: "Bass Nation sold 2,000 tickets in 3 hours" },
-                { emoji: "💼", text: "TechConf saved $4,000 in platform fees" },
-                { emoji: "⚡", text: "Average setup time: under 10 minutes" },
-              ].map(({ emoji, text }) => (
-                <div key={text} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
-                  <span className="text-xl">{emoji}</span>
-                  <p className="text-sm text-neutral-300">{text}</p>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
 
